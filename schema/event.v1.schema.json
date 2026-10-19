@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pulseposter.dev/schema/event.v1.schema.json",
+  "title": "PulsePoster annotation record v1",
+  "description": "One record per uploaded asset (image or text). Holds every event found in it, with raw text, normalised values, a status per field, and evidence pointing back to the source.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "asset_id",
+    "source_type",
+    "image",
+    "text",
+    "reference_datetime",
+    "reference_timezone",
+    "events",
+    "annotation"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "asset_id": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+    "source_type": {
+      "enum": [
+        "flyer_image",
+        "flyer_photo",
+        "social_screenshot",
+        "chat_screenshot",
+        "text_caption",
+        "text_message"
+      ]
+    },
+    "image": {
+      "description": "Pixel size of the original image. null for text-only inputs.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width", "height"],
+          "properties": {
+            "width": { "type": "integer", "minimum": 1 },
+            "height": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
+    },
+    "text": {
+      "description": "Full input text for text-only inputs (character spans index into this). null for images.",
+      "type": ["string", "null"]
+    },
+    "reference_datetime": {
+      "description": "When the asset was posted or uploaded, ISO 8601 with offset. Used to resolve 'tomorrow', 'this Saturday' and missing years. null if unknown.",
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "reference_timezone": {
+      "description": "IANA timezone of the reference context, e.g. 'Europe/Berlin'. null if unknown.",
+      "type": ["string", "null"]
+    },
+    "events": {
+      "description": "Every event in the asset. Empty if the asset contains no event.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["annotator_id", "annotated_at"],
+      "properties": {
+        "annotator_id": { "type": "string" },
+        "annotated_at": { "type": "string", "format": "date-time" },
+        "notes": { "type": ["string", "null"] }
+      }
+    }
+  },
+
+  "$defs": {
+    "status": {
+      "description": "How the value is known. explicit = printed/written; inferred = derived from context (e.g. 'tomorrow' + reference date); ambiguous = several readings possible; conflicting = the source contradicts itself; absent = not present.",
+      "enum": ["explicit", "inferred", "ambiguous", "conflicting", "absent"]
+    },
+
+    "box": {
+      "description": "[x0, y0, x1, y1] as fractions of image width/height (0-1), so boxes survive resizing.",
+      "type": "array",
+      "prefixItems": [
+        { "type": "number", "minimum": 0, "maximum": 1 },
+        { "type": "number", "minimum": 0, "maximum": 1 },
+        { "type": "number", "minimum": 0, "maximum": 1 },
+        { "type": "number", "minimum": 0, "maximum": 1 }
+      ],
+      "items": false,
+      "minItems": 4
+    },
+
+    "span": {
+      "description": "Character offsets [start, end) into the record's text, for text-only inputs.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "evidence": {
+      "description": "Where the value came from. Boxes for images, spans for text. A field may have several (e.g. date and time printed apart).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boxes", "spans"],
+      "properties": {
+        "boxes": { "type": "array", "items": { "$ref": "#/$defs/box" } },
+        "spans": { "type": "array", "items": { "$ref": "#/$defs/span" } }
+      }
+    },
+
+    "textField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw", "normalized", "status", "evidence"],
+      "properties": {
+        "raw": { "type": ["string", "null"] },
+        "normalized": { "type": ["string", "null"] },
+        "status": { "$ref": "#/$defs/status" },
+        "evidence": { "$ref": "#/$defs/evidence" }
+      },
+      "if": { "properties": { "status": { "const": "absent" } } },
+      "then": { "properties": { "raw": { "type": "null" }, "normalized": { "type": "null" } } }
+    },
+
+    "partialDateTime": {
+      "description": "Components instead of an ISO string, so unknown parts (usually the year) stay null instead of being invented.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["year", "month", "day", "hour", "minute"],
+      "properties": {
+        "year": { "type": ["integer", "null"], "minimum": 1900, "maximum": 2100 },
+        "month": { "type": ["integer", "null"], "minimum": 1, "maximum": 12 },
+        "day": { "type": ["integer", "null"], "minimum": 1, "maximum": 31 },
+        "hour": { "type": ["integer", "null"], "minimum": 0, "maximum": 23 },
+        "minute": { "type": ["integer", "null"], "minimum": 0, "maximum": 59 }
+      }
+    },
+
+    "dateTimeField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw", "value", "status", "evidence"],
+      "properties": {
+        "raw": { "type": ["string", "null"] },
+        "value": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/partialDateTime" }]
+        },
+        "status": { "$ref": "#/$defs/status" },
+        "evidence": { "$ref": "#/$defs/evidence" }
+      },
+      "if": { "properties": { "status": { "const": "absent" } } },
+      "then": { "properties": { "raw": { "type": "null" }, "value": { "type": "null" } } }
+    },
+
+    "priceTier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amount", "currency", "condition_raw"],
+      "properties": {
+        "amount": { "type": ["number", "null"], "minimum": 0 },
+        "currency": {
+          "description": "ISO 4217 code, e.g. INR, USD, EUR.",
+          "type": ["string", "null"],
+          "pattern": "^[A-Z]{3}$"
+        },
+        "condition_raw": {
+          "description": "Condition exactly as written, e.g. 'before 10 PM', 'early bird'. Not parsed in v1.",
+          "type": ["string", "null"]
+        }
+      }
+    },
+
+    "priceField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw", "qualifier", "tiers", "status", "evidence"],
+      "properties": {
+        "raw": { "type": ["string", "null"] },
+        "qualifier": { "enum": ["free", "paid", "mixed", "donation", "tbd", "absent"] },
+        "tiers": { "type": "array", "items": { "$ref": "#/$defs/priceTier" } },
+        "status": { "$ref": "#/$defs/status" },
+        "evidence": { "$ref": "#/$defs/evidence" }
+      }
+    },
+
+    "ticketField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw", "normalized", "via", "status", "evidence"],
+      "properties": {
+        "raw": { "type": ["string", "null"] },
+        "normalized": { "type": ["string", "null"], "description": "Full URL if one is readable." },
+        "via": {
+          "description": "How tickets are reached. link_in_bio = a link exists but is not on the asset.",
+          "enum": ["printed_url", "qr_code", "link_in_bio", "at_venue", "none"]
+        },
+        "status": { "$ref": "#/$defs/status" },
+        "evidence": { "$ref": "#/$defs/evidence" }
+      }
+    },
+
+    "ageField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw", "min_age", "status", "evidence"],
+      "properties": {
+        "raw": { "type": ["string", "null"] },
+        "min_age": { "type": ["integer", "null"], "minimum": 0, "maximum": 99 },
+        "status": { "$ref": "#/$defs/status" },
+        "evidence": { "$ref": "#/$defs/evidence" }
+      }
+    },
+
+    "event": {
+      "description": "Every key is always present; missing information is expressed with status 'absent', never by leaving a key out.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "start",
+        "end",
+        "doors",
+        "venue_name",
+        "address",
+        "organiser",
+        "price",
+        "ticket",
+        "categories",
+        "age_restriction",
+        "event_status"
+      ],
+      "properties": {
+        "title": { "$ref": "#/$defs/textField" },
+        "start": { "$ref": "#/$defs/dateTimeField" },
+        "end": { "$ref": "#/$defs/dateTimeField" },
+        "doors": { "$ref": "#/$defs/dateTimeField" },
+        "venue_name": { "$ref": "#/$defs/textField" },
+        "address": { "$ref": "#/$defs/textField" },
+        "organiser": { "$ref": "#/$defs/textField" },
+        "price": { "$ref": "#/$defs/priceField" },
+        "ticket": { "$ref": "#/$defs/ticketField" },
+        "categories": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["music", "party", "workshop", "comedy", "sports", "food", "art", "talk", "fest", "other"]
+          }
+        },
+        "age_restriction": { "$ref": "#/$defs/ageField" },
+        "event_status": {
+          "enum": ["scheduled", "cancelled", "postponed", "sold_out", "relocated"]
+        }
+      }
+    }
+  }
+}
